@@ -75,6 +75,26 @@ fn main() -> ! {
     info!("create dac");
     let mut dac = MCP4725::new(i2c1_device, 0b010);
     dac.set_dac(PowerDown::Normal, 0x0);
+    // let mut val1 = 0;
+    // let mut val2 = 0;
+    // let mut val3 = 0;
+    // let mut on = true;
+    // loop {
+    //     if val1 >= 0xfff {
+    //         val1 = 0;
+    //     }
+    //     if val2 >= 0x556 {
+    //         val2 = 0;
+    //     }
+    //     if val3 >= 0xfff {
+    //         val3 = 0;
+    //     }
+    //     // val1 += 50;
+    //     // val2 += 72;
+    //     val3 += 30;
+    //     // info!("{}", val);
+    //     // dac.set_dac_fast(PowerDown::Normal, val1 + val2 + val3);
+    // }
 
     info!("set up i2c1");
     let display_scl = pins.gpio21.into_function();
@@ -121,6 +141,7 @@ fn main() -> ! {
     // Gate pins
 
     critical_section::with(|cs| {
+        info!("Set alarms");
         alarm_0.schedule(INITIAL_ALARM_DURATION).ok();
         alarm_0.enable_interrupt();
         alarm_1.schedule(INITIAL_ALARM_DURATION).ok();
@@ -131,6 +152,7 @@ fn main() -> ! {
             .schedule(INITIAL_ENCODER_POLL_DURATION)
             .ok();
         encoder_poll_alarm.enable_interrupt();
+        info!("Create module state");
         unsafe {
             MODULE_STATE.borrow(cs).replace(Some(ModuleState {
                 alarm_0_duration: INITIAL_ALARM_DURATION,
@@ -151,6 +173,7 @@ fn main() -> ! {
             }));
         }
         // Don't unmask the interrupts until the Module State is in place
+        info!("Unmask interrupts");
         unsafe {
             pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_0);
             pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_1);
@@ -159,7 +182,33 @@ fn main() -> ! {
             pac::NVIC::unmask(pac::Interrupt::UART1_IRQ);
             pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0)
         }
+        info!("done!");
     });
 
-    loop {}
+    let mut val1 = 0;
+    let mut val2 = 0;
+    info!("looping");
+    loop {
+        info!("lope");
+        critical_section::with(|cs| {
+            let module_state = unsafe { MODULE_STATE.borrow(cs).take().unwrap() };
+            let ModuleState { mut dac, .. } = module_state;
+            if val1 >= 0x888 {
+                val1 = 0;
+            }
+            if val2 >= 0x888 {
+                val2 = 0;
+            }
+            val1 += 30;
+            val2 += 32;
+            // info!("{}", val);
+            dac.set_dac_fast(PowerDown::Normal, val1 + val2);
+            unsafe {
+                MODULE_STATE.borrow(cs).replace(Some(ModuleState {
+                    dac,
+                    ..module_state
+                }))
+            };
+        })
+    }
 }
