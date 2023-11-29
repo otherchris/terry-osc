@@ -1,3 +1,4 @@
+use crate::samples::OscState;
 use crate::MicrosDurationU32;
 use crate::{pac::I2C0, pac::I2C1, Alarm0, Alarm1, Alarm2, Alarm3, I2C};
 use crate::{RotaryEncoder, StandardMode};
@@ -61,4 +62,5 @@ pub struct ModuleState {
     pub dac: DacType,
     pub display: Ssd1306<I2CInterface<DisplayI2c>, DisplaySize128x32, TerminalMode>,
     pub uart_1: Uart1Type,
+    pub osc_state: OscState,
 }

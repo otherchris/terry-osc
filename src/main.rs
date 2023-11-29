@@ -30,6 +30,7 @@ mod samples;
 mod types;
 mod uart_interrupt;
 use rotary_encoder_embedded::{standard::StandardMode, RotaryEncoder};
+use samples::{advance_osc, new_osc, reset_osc, Osc, OscState, Wave};
 use types::ModuleState;
 
 static mut MODULE_STATE: Mutex<RefCell<Option<ModuleState>>> = Mutex::new(RefCell::new(None));
@@ -76,26 +77,6 @@ fn main() -> ! {
     info!("create dac");
     let mut dac = MCP4725::new(i2c1_device, 0b010);
     dac.set_dac(PowerDown::Normal, 0x0);
-    // let mut val1 = 0;
-    // let mut val2 = 0;
-    // let mut val3 = 0;
-    // let mut on = true;
-    // loop {
-    //     if val1 >= 0xfff {
-    //         val1 = 0;
-    //     }
-    //     if val2 >= 0x556 {
-    //         val2 = 0;
-    //     }
-    //     if val3 >= 0xfff {
-    //         val3 = 0;
-    //     }
-    //     // val1 += 50;
-    //     // val2 += 72;
-    //     val3 += 30;
-    //     // info!("{}", val);
-    //     // dac.set_dac_fast(PowerDown::Normal, val1 + val2 + val3);
-    // }
 
     info!("set up i2c1");
     let display_scl = pins.gpio21.into_function();
@@ -153,6 +134,18 @@ fn main() -> ! {
             .schedule(INITIAL_ENCODER_POLL_DURATION)
             .ok();
         encoder_poll_alarm.enable_interrupt();
+        let osc_state = OscState {
+            osc_1: Osc {
+                wave: Wave::Ramp,
+                sample_count: 90,
+                max_amp: 0xddd,
+                ..new_osc()
+            },
+            osc_2: new_osc(),
+            osc_3: new_osc(),
+            osc_4: new_osc(),
+            edit_index: 0,
+        };
         info!("Create module state");
         unsafe {
             MODULE_STATE.borrow(cs).replace(Some(ModuleState {
@@ -171,45 +164,57 @@ fn main() -> ! {
                 dac,
                 uart_1,
                 display,
+                osc_state,
             }));
         }
         // Don't unmask the interrupts until the Module State is in place
         info!("Unmask interrupts");
         unsafe {
-            pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_0);
-            pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_1);
-            pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_2);
+            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_0);
+            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_1);
+            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_2);
             pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_3);
-            pac::NVIC::unmask(pac::Interrupt::UART1_IRQ);
+            // pac::NVIC::unmask(pac::Interrupt::UART1_IRQ);
             pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0)
         }
         info!("done!");
     });
 
-    let mut val1 = 0;
-    let mut val2 = 0;
     info!("looping");
     loop {
-        info!("lope");
         critical_section::with(|cs| {
             let module_state = unsafe { MODULE_STATE.borrow(cs).take().unwrap() };
-            let ModuleState { mut dac, .. } = module_state;
-            if val1 >= 0x888 {
-                val1 = 0;
-            }
-            if val2 >= 0x888 {
-                val2 = 0;
-            }
-            val1 += 30;
-            val2 += 32;
-            // info!("{}", val);
-            dac.set_dac_fast(PowerDown::Normal, val1 + val2);
+            let ModuleState {
+                mut dac,
+                mut osc_state,
+                ..
+            } = module_state;
+            osc_state.osc_1 = reset_osc(osc_state.osc_1);
+            osc_state.osc_2 = reset_osc(osc_state.osc_2);
+            osc_state.osc_1 = reset_osc(osc_state.osc_1);
+            osc_state.osc_1 = reset_osc(osc_state.osc_1);
+
+            let (val1, osc_1) = advance_osc(osc_state.osc_1);
+            let (val2, osc_2) = advance_osc(osc_state.osc_2);
+            let (val3, osc_3) = advance_osc(osc_state.osc_3);
+            let (val4, osc_4) = advance_osc(osc_state.osc_4);
+
+            dac.set_dac_fast(PowerDown::Normal, val1 + val2 + val3 + val4);
+
+            osc_state = OscState {
+                osc_1,
+                osc_2,
+                osc_3,
+                osc_4,
+                ..osc_state
+            };
             unsafe {
                 MODULE_STATE.borrow(cs).replace(Some(ModuleState {
                     dac,
+                    osc_state,
                     ..module_state
                 }))
-            };
-        })
+            }
+        });
     }
 }

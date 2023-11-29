@@ -1,7 +1,7 @@
 use rotary_encoder_embedded::Direction;
 use rp2040_hal::timer::Alarm;
 
-use crate::{info, interrupt, pac, ModuleState, Pins, Sio, MODULE_STATE};
+use crate::{info, interrupt, pac, samples::Osc, ModuleState, Pins, Sio, MODULE_STATE};
 
 #[interrupt]
 fn TIMER_IRQ_3() {
@@ -13,6 +13,7 @@ fn TIMER_IRQ_3() {
             mut encoder_1,
             mut encoder_2,
             mut display,
+            mut osc_state,
             ..
         } = module_state;
         encoder_poll_alarm.clear_interrupt();
@@ -22,16 +23,20 @@ fn TIMER_IRQ_3() {
         encoder_2.update();
         match encoder_1.direction() {
             Direction::Clockwise => {
-                display.clear().ok();
-                for c in ['c', 'l', 'o', 'c', 'k', '1'] {
-                    display.print_char(c).ok();
-                }
+                info!("clocky");
+                osc_state.osc_1 = Osc {
+                    sample_count: osc_state.osc_1.sample_count - 1,
+                    edit_flag: true,
+                    ..osc_state.osc_1
+                };
             }
             Direction::Anticlockwise => {
-                display.clear().ok();
-                for c in ['a', 'n', 't', 'i', '1'] {
-                    display.print_char(c).ok();
-                }
+                info!("anticlocky");
+                osc_state.osc_1 = Osc {
+                    sample_count: osc_state.osc_1.sample_count + 1,
+                    edit_flag: true,
+                    ..osc_state.osc_1
+                };
             }
             Direction::None => {
                 // info!("None")
@@ -61,6 +66,7 @@ fn TIMER_IRQ_3() {
                 encoder_1,
                 encoder_2,
                 display,
+                osc_state,
                 ..module_state
             }))
         }
