@@ -26,6 +26,7 @@ mod clocked_interrupts;
 mod display_messages;
 mod encoder_interrupt;
 mod io_irq_bank0;
+mod samples;
 mod types;
 mod uart_interrupt;
 use rotary_encoder_embedded::{standard::StandardMode, RotaryEncoder};
@@ -74,7 +75,7 @@ fn main() -> ! {
 
     info!("create dac");
     let mut dac = MCP4725::new(i2c1_device, 0b010);
-    dac.set_dac(PowerDown::Normal, 0x0);
+    dac.set_dac(PowerDown::Normal, 0xeee);
 
     info!("set up i2c1");
     let display_scl = pins.gpio21.into_function();
