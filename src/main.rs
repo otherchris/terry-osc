@@ -26,6 +26,7 @@ mod clocked_interrupts;
 mod display_messages;
 mod encoder_interrupt;
 mod io_irq_bank0;
+mod samples;
 mod types;
 mod uart_interrupt;
 use rotary_encoder_embedded::{standard::StandardMode, RotaryEncoder};
