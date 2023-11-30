@@ -1,4 +1,4 @@
-use crate::samples::OscState;
+use crate::samples::Sample;
 use crate::MicrosDurationU32;
 use crate::{pac::I2C0, pac::I2C1, Alarm0, Alarm1, Alarm2, Alarm3, I2C};
 use crate::{RotaryEncoder, StandardMode};
@@ -31,36 +31,19 @@ pub type TxPin = rp2040_hal::gpio::Pin<Gpio8, FunctionUart, PullDown>;
 pub type RxPin = rp2040_hal::gpio::Pin<Gpio9, FunctionUart, PullDown>;
 pub type Uart1Type = UartPeripheral<Enabled, UART1, (TxPin, RxPin)>;
 
-pub type RotaryEncoder1 = RotaryEncoder<
+pub type RotaryEncoderType = RotaryEncoder<
     StandardMode,
     Pin<Gpio15, FunctionSioInput, PullUp>,
     Pin<Gpio14, FunctionSioInput, PullUp>,
 >;
 
-pub type RotaryEncoder2 = RotaryEncoder<
-    StandardMode,
-    Pin<Gpio13, FunctionSioInput, PullUp>,
-    Pin<Gpio12, FunctionSioInput, PullUp>,
->;
+pub type RotaryEncoderButton = Pin<Gpio11, FunctionSioInput, PullUp>;
+pub type RotaryEncoderDt = Pin<Gpio15, FunctionSioInput, PullUp>;
 
-pub type RotaryEncoder1Button = Pin<Gpio11, FunctionSioInput, PullUp>;
-pub type RotaryEncoder2Button = Pin<Gpio10, FunctionSioInput, PullUp>;
-
-pub struct ModuleState {
-    pub alarm_0_duration: MicrosDurationU32,
-    pub alarm_1_duration: MicrosDurationU32,
-    pub alarm_2_duration: MicrosDurationU32,
-    pub encoder_poll_duration: MicrosDurationU32,
-    pub alarm_0: Alarm0,
-    pub alarm_1: Alarm1,
-    pub alarm_2: Alarm2,
-    pub encoder_poll_alarm: Alarm3,
-    pub encoder_1: RotaryEncoder1,
-    pub encoder_1_button: RotaryEncoder1Button,
-    pub encoder_2: RotaryEncoder2,
-    pub encoder_2_button: RotaryEncoder2Button,
-    pub dac: DacType,
+pub struct ModuleState<'a> {
+    pub encoder: RotaryEncoderType,
+    pub encoder_button: RotaryEncoderButton,
     pub display: Ssd1306<I2CInterface<DisplayI2c>, DisplaySize128x32, TerminalMode>,
-    pub uart_1: Uart1Type,
-    pub osc_state: OscState,
+    pub sample: &'a mut Sample,
+    pub sample_length: usize,
 }

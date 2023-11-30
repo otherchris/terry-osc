@@ -29,28 +29,24 @@ pub enum Wave {
     None,
 }
 
-pub fn reset_osc(osc: Osc) -> Osc {
-    if !osc.edit_flag {
-        return osc;
-    }
-    info!("resetting");
-    info!("{}", osc.sample_count);
-    let sample = match osc.wave {
-        Wave::Ramp => ramp(osc.sample_count, osc.max_amp),
-        Wave::Triangle => triangle(osc.sample_count, osc.max_amp),
-        Wave::Saw => saw(osc.sample_count, osc.max_amp),
-        Wave::None => none(osc.sample_count),
-    };
-    let new_osc = Osc {
-        sample,
-        edit_flag: false,
-        next: 0,
-        ..osc
-    };
-    new_osc
-}
+// pub fn reset_osc(osc: &mut Osc) -> () {
+//     if !osc.edit_flag {
+//         return;
+//     }
+//     info!("resetting");
+//     info!("{}", osc.sample_count);
+//     let sample = match osc.wave {
+//         Wave::Ramp => ramp(osc.sample_count, osc.max_amp),
+//         Wave::Triangle => triangle(osc.sample_count, osc.max_amp),
+//         Wave::Saw => saw(osc.sample_count, osc.max_amp),
+//         Wave::None => none(osc.sample_count),
+//     };
+//     osc.sample = sample;
+//     osc.edit_flag = false;
+//     osc.next = 0;
+// }
 
-pub fn advance_osc(osc: Osc) -> (u16, Osc) {
+pub fn advance_osc(osc: &mut Osc) -> u16 {
     let val = match osc.sample[osc.next] {
         Some(val) => val,
         None => osc.last,
@@ -59,14 +55,8 @@ pub fn advance_osc(osc: Osc) -> (u16, Osc) {
         Some(_) => osc.next + 1,
         None => 0,
     };
-    (
-        val,
-        Osc {
-            next,
-            last: val,
-            ..osc
-        },
-    )
+    osc.next = next;
+    val
 }
 
 pub fn new_osc() -> Osc {
@@ -81,18 +71,16 @@ pub fn new_osc() -> Osc {
     }
 }
 
-fn blank_sample() -> Sample {
+pub fn blank_sample() -> Sample {
     [None; MAX_LENGTH]
 }
 
-fn ramp(length: usize, max_amp: u16) -> [Option<u16>; MAX_LENGTH] {
-    let mut sample: [Option<u16>; MAX_LENGTH] = [Some(0); MAX_LENGTH];
+pub fn ramp(length: usize, max_amp: u16, sample: &mut Sample) -> () {
     let factor = max_amp / length as u16;
     for i in 0..length {
         sample[i] = Some(factor * i as u16);
     }
     sample[length - 1] = None;
-    sample
 }
 
 fn saw(length: usize, max_amp: u16) -> [Option<u16>; MAX_LENGTH] {

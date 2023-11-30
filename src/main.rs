@@ -22,15 +22,11 @@ use rp2040_hal::{
 };
 use rp_pico::entry;
 use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
-mod clocked_interrupts;
-mod display_messages;
-mod encoder_interrupt;
 mod io_irq_bank0;
 mod samples;
 mod types;
-mod uart_interrupt;
 use rotary_encoder_embedded::{standard::StandardMode, RotaryEncoder};
-use samples::{advance_osc, new_osc, reset_osc, Osc, OscState, Wave};
+use samples::{advance_osc, new_osc, ramp, Osc, OscState, Wave};
 use types::ModuleState;
 
 static mut MODULE_STATE: Mutex<RefCell<Option<ModuleState>>> = Mutex::new(RefCell::new(None));
@@ -59,12 +55,6 @@ fn main() -> ! {
     .unwrap();
     info!("creating timer");
     let mut timer = Timer::new(pac.TIMER, &mut resets, &clocks);
-
-    info!("creating alarms");
-    let mut alarm_0 = timer.alarm_0().unwrap();
-    let mut alarm_1 = timer.alarm_1().unwrap();
-    let mut alarm_2 = timer.alarm_2().unwrap();
-    let mut encoder_poll_alarm = timer.alarm_3().unwrap();
 
     let pins = Pins::new(pac.IO_BANK0, pac.PADS_BANK0, sio.gpio_bank0, &mut resets);
 
@@ -96,75 +86,25 @@ fn main() -> ! {
     display.init().unwrap();
     display.clear().ok();
 
-    info!("set up uart");
-    let uart_pins = (pins.gpio8.into_function(), pins.gpio9.into_function());
-    let mut uart_1 = UartPeripheral::new(pac.UART1, uart_pins, &mut resets)
-        .enable(
-            UartConfig::new(9600.Hz(), DataBits::Eight, None, StopBits::One),
-            clocks.peripheral_clock.freq(),
-        )
-        .unwrap();
-    uart_1.enable_rx_interrupt();
+    info!("set up encoder");
+    let encoder_dt = pins.gpio15.into_pull_up_input();
+    encoder_dt.set_interrupt_enabled(rp2040_hal::gpio::Interrupt::EdgeLow, true);
+    let encoder_clk = pins.gpio14.into_pull_up_input();
+    let encoder = RotaryEncoder::new(encoder_dt, encoder_clk).into_standard_mode();
+    let encoder_button = pins.gpio11.reconfigure();
+    encoder_button.set_interrupt_enabled(rp2040_hal::gpio::Interrupt::EdgeHigh, true);
 
-    info!("set up rotary 1");
-    let rotary_1_dt = pins.gpio15.into_pull_up_input();
-    let rotary_1_clk = pins.gpio14.into_pull_up_input();
-    let encoder_1 = RotaryEncoder::new(rotary_1_dt, rotary_1_clk).into_standard_mode();
-    let encoder_1_button = pins.gpio11.reconfigure();
-    encoder_1_button.set_interrupt_enabled(rp2040_hal::gpio::Interrupt::EdgeHigh, true);
-
-    info!("set up rotary 2");
-    let rotary_2_dt = pins.gpio13.into_pull_up_input();
-    let rotary_2_clk = pins.gpio12.into_pull_up_input();
-    let encoder_2 = RotaryEncoder::new(rotary_2_dt, rotary_2_clk).into_standard_mode();
-    let encoder_2_button = pins.gpio10.reconfigure();
-    encoder_2_button.set_interrupt_enabled(rp2040_hal::gpio::Interrupt::EdgeHigh, true);
-
-    // Gate pins
-
+    let mut sample = [Some(0); 1000];
+    ramp(100, 0xfff, &mut sample);
     critical_section::with(|cs| {
-        info!("Set alarms");
-        alarm_0.schedule(INITIAL_ALARM_DURATION).ok();
-        alarm_0.enable_interrupt();
-        alarm_1.schedule(INITIAL_ALARM_DURATION).ok();
-        alarm_1.enable_interrupt();
-        alarm_2.schedule(INITIAL_ALARM_DURATION).ok();
-        alarm_2.enable_interrupt();
-        encoder_poll_alarm
-            .schedule(INITIAL_ENCODER_POLL_DURATION)
-            .ok();
-        encoder_poll_alarm.enable_interrupt();
-        let osc_state = OscState {
-            osc_1: Osc {
-                wave: Wave::Ramp,
-                sample_count: 90,
-                max_amp: 0xddd,
-                ..new_osc()
-            },
-            osc_2: new_osc(),
-            osc_3: new_osc(),
-            osc_4: new_osc(),
-            edit_index: 0,
-        };
         info!("Create module state");
         unsafe {
             MODULE_STATE.borrow(cs).replace(Some(ModuleState {
-                alarm_0_duration: INITIAL_ALARM_DURATION,
-                alarm_1_duration: INITIAL_ALARM_DURATION,
-                alarm_2_duration: INITIAL_ALARM_DURATION,
-                encoder_poll_duration: INITIAL_ENCODER_POLL_DURATION,
-                alarm_0,
-                alarm_1,
-                alarm_2,
-                encoder_poll_alarm,
-                encoder_1,
-                encoder_2,
-                encoder_1_button,
-                encoder_2_button,
-                dac,
-                uart_1,
+                encoder,
+                encoder_button,
                 display,
-                osc_state,
+                sample: &mut sample,
+                sample_length: 100,
             }));
         }
         // Don't unmask the interrupts until the Module State is in place
@@ -173,7 +113,7 @@ fn main() -> ! {
             // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_0);
             // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_1);
             // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_2);
-            pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_3);
+            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_3);
             // pac::NVIC::unmask(pac::Interrupt::UART1_IRQ);
             pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0)
         }
@@ -181,40 +121,18 @@ fn main() -> ! {
     });
 
     info!("looping");
+    let mut i = 0;
+    let mut val = 0;
     loop {
-        critical_section::with(|cs| {
-            let module_state = unsafe { MODULE_STATE.borrow(cs).take().unwrap() };
-            let ModuleState {
-                mut dac,
-                mut osc_state,
-                ..
-            } = module_state;
-            osc_state.osc_1 = reset_osc(osc_state.osc_1);
-            osc_state.osc_2 = reset_osc(osc_state.osc_2);
-            osc_state.osc_1 = reset_osc(osc_state.osc_1);
-            osc_state.osc_1 = reset_osc(osc_state.osc_1);
+        // osc_state.osc_1 = reset_osc(osc_state.osc_1);
+        // osc_state.osc_1 = reset_osc(osc_state.osc_1);
+        (i, val) = match sample[i] {
+            Some(val) => (i + 1, val),
+            None => (0, val),
+        };
+        // let (val3, osc_3) = advance_osc(osc_state.osc_3);
+        // let (val4, osc_4) = advance_osc(osc_state.osc_4);
 
-            let (val1, osc_1) = advance_osc(osc_state.osc_1);
-            let (val2, osc_2) = advance_osc(osc_state.osc_2);
-            let (val3, osc_3) = advance_osc(osc_state.osc_3);
-            let (val4, osc_4) = advance_osc(osc_state.osc_4);
-
-            dac.set_dac_fast(PowerDown::Normal, val1 + val2 + val3 + val4);
-
-            osc_state = OscState {
-                osc_1,
-                osc_2,
-                osc_3,
-                osc_4,
-                ..osc_state
-            };
-            unsafe {
-                MODULE_STATE.borrow(cs).replace(Some(ModuleState {
-                    dac,
-                    osc_state,
-                    ..module_state
-                }))
-            }
-        });
+        dac.set_dac_fast(PowerDown::Normal, val);
     }
 }

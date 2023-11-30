@@ -1,34 +1,49 @@
-use crate::{info, interrupt, pac, ModuleState, Pins, Sio, MODULE_STATE};
-use rp2040_hal::gpio::Interrupt::EdgeHigh;
+use crate::{info, interrupt, pac, ramp, samples::Osc, ModuleState, Pins, Sio, MODULE_STATE};
+use rotary_encoder_embedded::Direction;
+use rp2040_hal::gpio::Interrupt::{EdgeHigh, EdgeLow};
 
 #[interrupt]
 fn IO_IRQ_BANK0() {
+    info!("irqed");
     critical_section::with(|cs| {
         let module_state = unsafe { MODULE_STATE.borrow(cs).take().unwrap() };
         let ModuleState {
-            mut encoder_1_button,
-            mut encoder_2_button,
+            mut encoder,
+            mut encoder_button,
             mut display,
+            sample,
+            mut sample_length,
             ..
         } = module_state;
-        if encoder_1_button.interrupt_status(EdgeHigh) {
+        if encoder_button.interrupt_status(EdgeHigh) {
             display.clear().ok();
             for c in ['b', 'u', 't', 't', '1'] {
                 display.print_char(c).ok();
             }
-            encoder_1_button.clear_interrupt(EdgeHigh);
+            encoder_button.clear_interrupt(EdgeHigh);
         }
-        if encoder_2_button.interrupt_status(EdgeHigh) {
-            display.clear().ok();
-            for c in ['b', 'u', 't', 't', '2'] {
-                display.print_char(c).ok();
+        encoder.update();
+        match encoder.direction() {
+            Direction::Clockwise => {
+                info!("clocky");
+                ramp(sample_length + 1, 0xfff, sample);
+                sample_length += 1;
             }
-            encoder_2_button.clear_interrupt(EdgeHigh);
+            Direction::Anticlockwise => {
+                info!("anticlocky");
+                ramp(sample_length - 1, 0xfff, sample);
+                sample_length -= 1;
+            }
+            Direction::None => {
+                // info!("None")
+            }
         }
+        let (dt, _) = encoder.pins_mut();
+        dt.clear_interrupt(EdgeLow);
         unsafe {
             MODULE_STATE.borrow(cs).replace(Some(ModuleState {
-                encoder_1_button,
-                encoder_2_button,
+                encoder,
+                encoder_button,
                 display,
                 ..module_state
             }))
