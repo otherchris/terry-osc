@@ -40,10 +40,9 @@ pub type RotaryEncoderType = RotaryEncoder<
 pub type RotaryEncoderButton = Pin<Gpio11, FunctionSioInput, PullUp>;
 pub type RotaryEncoderDt = Pin<Gpio15, FunctionSioInput, PullUp>;
 
-pub struct ModuleState<'a> {
+pub struct ModuleState {
     pub encoder: RotaryEncoderType,
     pub encoder_button: RotaryEncoderButton,
-    pub display: Ssd1306<I2CInterface<DisplayI2c>, DisplaySize128x32, TerminalMode>,
-    pub sample: &'a mut Sample,
-    pub sample_length: usize,
+    pub high: bool,
+    pub change: bool,
 }

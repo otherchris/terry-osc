@@ -8,45 +8,44 @@ fn IO_IRQ_BANK0() {
     critical_section::with(|cs| {
         let module_state = unsafe { MODULE_STATE.borrow(cs).take().unwrap() };
         let ModuleState {
-            mut encoder,
             mut encoder_button,
-            mut display,
-            sample,
-            mut sample_length,
+            mut change,
+            mut encoder,
             ..
         } = module_state;
         if encoder_button.interrupt_status(EdgeHigh) {
-            display.clear().ok();
-            for c in ['b', 'u', 't', 't', '1'] {
-                display.print_char(c).ok();
-            }
+            change = true;
             encoder_button.clear_interrupt(EdgeHigh);
         }
-        encoder.update();
-        match encoder.direction() {
-            Direction::Clockwise => {
-                info!("clocky");
-                ramp(sample_length + 1, 0xfff, sample);
-                sample_length += 1;
-            }
-            Direction::Anticlockwise => {
-                info!("anticlocky");
-                ramp(sample_length - 1, 0xfff, sample);
-                sample_length -= 1;
-            }
-            Direction::None => {
-                // info!("None")
+        let (dt, clk) = encoder.pins_mut();
+        if dt.interrupt_status(EdgeLow) {
+            info!("LOWW");
+            dt.clear_interrupt(EdgeLow);
+            encoder.update();
+            match encoder.direction() {
+                Direction::Clockwise => {
+                    info!("clocky");
+                    change = true
+                }
+                Direction::Anticlockwise => {
+                    info!("anticlocky");
+                    change = true
+                }
+                Direction::None => {
+                    // info!("None")
+                }
             }
         }
-        let (dt, _) = encoder.pins_mut();
-        dt.clear_interrupt(EdgeLow);
+        //         let (dt, _) = encoder.pins_mut();
+        //         dt.clear_interrupt(EdgeLow);
         unsafe {
             MODULE_STATE.borrow(cs).replace(Some(ModuleState {
                 encoder,
                 encoder_button,
-                display,
+                change,
                 ..module_state
             }))
         }
     });
+    // }
 }

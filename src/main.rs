@@ -27,7 +27,7 @@ mod samples;
 mod types;
 use rotary_encoder_embedded::{standard::StandardMode, RotaryEncoder};
 use samples::{advance_osc, new_osc, ramp, Osc, OscState, Wave};
-use types::ModuleState;
+use types::{ModuleState, RotaryEncoderButton};
 
 static mut MODULE_STATE: Mutex<RefCell<Option<ModuleState>>> = Mutex::new(RefCell::new(None));
 static INITIAL_ALARM_DURATION: MicrosDurationU32 = MicrosDurationU32::micros(100000);
@@ -91,48 +91,65 @@ fn main() -> ! {
     encoder_dt.set_interrupt_enabled(rp2040_hal::gpio::Interrupt::EdgeLow, true);
     let encoder_clk = pins.gpio14.into_pull_up_input();
     let encoder = RotaryEncoder::new(encoder_dt, encoder_clk).into_standard_mode();
-    let encoder_button = pins.gpio11.reconfigure();
+    let encoder_button: RotaryEncoderButton = pins.gpio11.reconfigure();
     encoder_button.set_interrupt_enabled(rp2040_hal::gpio::Interrupt::EdgeHigh, true);
 
-    let mut sample = [Some(0); 1000];
-    ramp(100, 0xfff, &mut sample);
     critical_section::with(|cs| {
-        info!("Create module state");
         unsafe {
             MODULE_STATE.borrow(cs).replace(Some(ModuleState {
                 encoder,
                 encoder_button,
-                display,
-                sample: &mut sample,
-                sample_length: 100,
+                high: false,
+                change: false,
             }));
         }
         // Don't unmask the interrupts until the Module State is in place
-        info!("Unmask interrupts");
-        unsafe {
-            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_0);
-            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_1);
-            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_2);
-            // pac::NVIC::unmask(pac::Interrupt::TIMER_IRQ_3);
-            // pac::NVIC::unmask(pac::Interrupt::UART1_IRQ);
-            pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0)
-        }
-        info!("done!");
+        unsafe { pac::NVIC::unmask(pac::Interrupt::IO_IRQ_BANK0) }
     });
-
     info!("looping");
     let mut i = 0;
     let mut val = 0;
+    let mut count = 0;
+    let mut sample = [Some(0); 1000];
+    let mut current = 110;
+    ramp(current, 0xfff, &mut sample);
     loop {
-        // osc_state.osc_1 = reset_osc(osc_state.osc_1);
-        // osc_state.osc_1 = reset_osc(osc_state.osc_1);
-        (i, val) = match sample[i] {
-            Some(val) => (i + 1, val),
-            None => (0, val),
-        };
-        // let (val3, osc_3) = advance_osc(osc_state.osc_3);
-        // let (val4, osc_4) = advance_osc(osc_state.osc_4);
+        critical_section::with(|cs| {
+            let module_state = unsafe { MODULE_STATE.borrow(cs).take().unwrap() };
+            let ModuleState {
+                encoder_button,
+                mut high,
+                mut change,
+                ..
+            } = module_state;
+            if change {
+                current -= 1;
+                ramp(current, 0xfff, &mut sample);
+                change = false;
+            }
+            if change && !high {
+                ramp(80, 0xfff, &mut sample);
+                change = false;
+            }
 
-        dac.set_dac_fast(PowerDown::Normal, val);
+            // osc_state.osc_1 = reset_osc(osc_state.osc_1);
+            // osc_state.osc_1 = reset_osc(osc_state.osc_1);
+            (i, val) = match sample[i] {
+                Some(val) => (i + 1, val),
+                None => (0, val),
+            };
+            // let (val3, osc_3) = advance_osc(osc_state.osc_3);
+            // let (val4, osc_4) = advance_osc(osc_state.osc_4);
+
+            dac.set_dac_fast(PowerDown::Normal, val);
+            unsafe {
+                MODULE_STATE.borrow(cs).replace(Some(ModuleState {
+                    encoder_button,
+                    high,
+                    change,
+                    ..module_state
+                }));
+            }
+        })
     }
 }
